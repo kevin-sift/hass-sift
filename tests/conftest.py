@@ -28,6 +28,8 @@ if "homeassistant" not in sys.modules:
     helpers = types.ModuleType("homeassistant.helpers")
     cv = types.ModuleType("homeassistant.helpers.config_validation")
     cv.string = str
+    cv.boolean = bool
+    cv.ensure_list = lambda x: x if isinstance(x, list) else [x]
     entityfilter = types.ModuleType("homeassistant.helpers.entityfilter")
     entityfilter.FILTER_SCHEMA = vol.Schema({}, extra=vol.ALLOW_EXTRA)
 
