@@ -2,7 +2,8 @@
 
 Ingests Home Assistant state changes into Sift (https://www.siftstack.com)
 via schemaless REST, using a shared ClientSession, bounded queue, and batched
-POSTs with retry/backoff.
+POSTs with retry/backoff. Optionally forwards selected log lines as a string
+channel.
 """
 
 from __future__ import annotations
@@ -28,9 +29,16 @@ from .const import (
     CONF_BACKOFF_MAX,
     CONF_FILTER,
     CONF_FLUSH_INTERVAL,
+    CONF_FORWARD_LOGS,
+    CONF_LOGS_CHANNEL,
+    CONF_LOGS_ENABLED,
+    CONF_LOGS_LEVEL,
+    CONF_LOGS_LOGGERS,
+    CONF_LOGS_MAX_LENGTH,
     CONF_MAX_BATCH_POINTS,
     CONF_MAX_RETRIES,
     CONF_QUEUE_MAXSIZE,
+    DATA_LOG_HANDLER,
     DATA_SESSION,
     DATA_STATS,
     DATA_UNSUB,
@@ -38,17 +46,21 @@ from .const import (
     DEFAULT_BACKOFF_BASE,
     DEFAULT_BACKOFF_MAX,
     DEFAULT_FLUSH_INTERVAL,
+    DEFAULT_LOGS_CHANNEL,
+    DEFAULT_LOGS_ENABLED,
+    DEFAULT_LOGS_LEVEL,
+    DEFAULT_LOGS_MAX_LENGTH,
     DEFAULT_MAX_BATCH_POINTS,
     DEFAULT_MAX_RETRIES,
     DEFAULT_QUEUE_MAXSIZE,
     DOMAIN,
 )
 from .ingest import IngestPoint, IngestWorker, empty_stats
+from .logging_forward import attach_log_handler, detach_log_handler
 from .schemas import CONFIG_SCHEMA, STATE_VALUE_SCHEMA
 
 _LOGGER = logging.getLogger(__name__)
 
-# Re-export for Home Assistant config validation.
 __all__ = ["CONFIG_SCHEMA", "async_setup"]
 
 
@@ -94,9 +106,29 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         DATA_SESSION: session,
         DATA_WORKER: worker,
         DATA_STATS: stats,
+        DATA_LOG_HANDLER: None,
     }
 
     await worker.start()
+
+    logs_conf = conf.get(CONF_FORWARD_LOGS) or {}
+    if logs_conf.get(CONF_LOGS_ENABLED, DEFAULT_LOGS_ENABLED):
+        handler = attach_log_handler(
+            loop=hass.loop,
+            worker=worker,
+            level_name=logs_conf.get(CONF_LOGS_LEVEL, DEFAULT_LOGS_LEVEL),
+            loggers=logs_conf.get(CONF_LOGS_LOGGERS, []),
+            channel=logs_conf.get(CONF_LOGS_CHANNEL, DEFAULT_LOGS_CHANNEL),
+            max_message_length=logs_conf.get(
+                CONF_LOGS_MAX_LENGTH, DEFAULT_LOGS_MAX_LENGTH
+            ),
+        )
+        hass.data[DOMAIN][DATA_LOG_HANDLER] = handler
+        _LOGGER.info(
+            "Sift log forwarding enabled → channel %s (level=%s)",
+            logs_conf.get(CONF_LOGS_CHANNEL, DEFAULT_LOGS_CHANNEL),
+            logs_conf.get(CONF_LOGS_LEVEL, DEFAULT_LOGS_LEVEL),
+        )
 
     @callback
     def handle_event(event: Event) -> None:
@@ -131,6 +163,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.data[DOMAIN][DATA_UNSUB] = unsub
 
     async def _on_stop(_event: Event) -> None:
+        detach_log_handler(hass.data.get(DOMAIN, {}).get(DATA_LOG_HANDLER))
         unsub_fn = hass.data.get(DOMAIN, {}).get(DATA_UNSUB)
         if unsub_fn:
             unsub_fn()
