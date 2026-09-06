@@ -5,6 +5,16 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entityfilter import FILTER_SCHEMA
 
 from .const import (
+    CONF_FORWARD_LOGS,
+    CONF_LOGS_CHANNEL,
+    CONF_LOGS_ENABLED,
+    CONF_LOGS_LEVEL,
+    CONF_LOGS_LOGGERS,
+    CONF_LOGS_MAX_LENGTH,
+    DEFAULT_LOGS_CHANNEL,
+    DEFAULT_LOGS_ENABLED,
+    DEFAULT_LOGS_LEVEL,
+    DEFAULT_LOGS_MAX_LENGTH,
     CONF_API_KEY,
     CONF_API_URI,
     CONF_ASSET,
@@ -50,6 +60,27 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional(
                     CONF_BACKOFF_MAX, default=DEFAULT_BACKOFF_MAX
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=600)),
+                vol.Optional(CONF_FORWARD_LOGS): vol.Schema(
+                    {
+                        vol.Optional(
+                            CONF_LOGS_ENABLED, default=DEFAULT_LOGS_ENABLED
+                        ): cv.boolean,
+                        vol.Optional(
+                            CONF_LOGS_LEVEL, default=DEFAULT_LOGS_LEVEL
+                        ): vol.In(
+                            ["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+                        ),
+                        vol.Optional(CONF_LOGS_LOGGERS, default=[]): vol.All(
+                            cv.ensure_list, [cv.string]
+                        ),
+                        vol.Optional(
+                            CONF_LOGS_CHANNEL, default=DEFAULT_LOGS_CHANNEL
+                        ): cv.string,
+                        vol.Optional(
+                            CONF_LOGS_MAX_LENGTH, default=DEFAULT_LOGS_MAX_LENGTH
+                        ): vol.All(vol.Coerce(int), vol.Range(min=50, max=4000)),
+                    }
+                ),
             }
         )
     },

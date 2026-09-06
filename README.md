@@ -66,3 +66,30 @@ sift:
 
 * Prototype; manually installed. Future work: health entities, Config Flow / HACS.
 * Uses Sift [Schemaless Ingestion](https://docs.siftstack.com/documentation/reference/stream/schemaless-ingestion-reference). Enumerated string states show up as log/string data in Sift.
+
+### Optional log forwarding (v0.3+)
+
+Forward selected Home Assistant log lines to a Sift **string** channel (schemaless). Off by default. Uses the same ingest queue as state changes.
+
+```yaml
+sift:
+  api_uri: https://<uri>/api/v2/ingest
+  api_key: !secret sift_api_key
+  asset: my_hass_asset_name
+  forward_logs:
+    enabled: true
+    level: WARNING          # DEBUG | INFO | WARNING | ERROR | CRITICAL
+    loggers: []             # empty = all loggers (except custom_components.sift)
+    # loggers:
+    #   - homeassistant.components.http
+    #   - custom_components
+    channel: homeassistant.log
+    max_message_length: 500
+```
+
+Notes:
+
+* Values look like `WARNING homeassistant.core: Something happened`.
+* Obvious `api_key` / `token` / `bearer` / `password` snippets are redacted to `***`.
+* The component never forwards its own `custom_components.sift*` logs (recursion guard).
+* Log volume can be high — prefer `WARNING`+ and a logger allowlist.
