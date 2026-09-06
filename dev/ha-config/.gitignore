@@ -1,0 +1,8 @@
+home-assistant_v2.db*
+.storage/
+.cloud/
+deps/
+tts/
+*.log
+.HA_VERSION
+custom_components/

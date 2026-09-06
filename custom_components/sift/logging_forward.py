@@ -98,22 +98,38 @@ def attach_log_handler(
     channel: str,
     max_message_length: int,
 ) -> SiftLogHandler:
-    """Install handler on the root logger; returns handler for later detach."""
+    """Install handler on HA loggers; returns handler for later detach.
+
+    Empty ``loggers`` attaches to the ``homeassistant`` logger (children
+    propagate). Named prefixes attach to those loggers only. Root is not
+    used by default — HA does not propagate into root the way stdlib apps do.
+    """
     handler = SiftLogHandler(
         loop=loop,
         worker=worker,
         min_level=parse_level(level_name),
-        logger_prefixes=list(loggers),
+        # When attaching directly to named loggers, do not also filter by prefix
+        # (prefix filter is for root/catch-all mode). Empty list = no prefix filter.
+        logger_prefixes=[],
         channel=channel,
         max_message_length=max_message_length,
     )
-    logging.getLogger().addHandler(handler)
+    targets: list[str]
+    if loggers:
+        targets = list(loggers)
+    else:
+        targets = ["homeassistant"]
+    handler._sift_targets = targets  # type: ignore[attr-defined]
+    for name in targets:
+        logging.getLogger(name).addHandler(handler)
     return handler
 
 
 def detach_log_handler(handler: SiftLogHandler | None) -> None:
-    """Remove handler from the root logger if present."""
+    """Remove handler from whatever loggers it was attached to."""
     if handler is None:
         return
-    logging.getLogger().removeHandler(handler)
+    targets = getattr(handler, "_sift_targets", None) or [""]
+    for name in targets:
+        logging.getLogger(name).removeHandler(handler)
     handler.close()

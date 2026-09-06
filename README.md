@@ -79,7 +79,7 @@ sift:
   forward_logs:
     enabled: true
     level: WARNING          # DEBUG | INFO | WARNING | ERROR | CRITICAL
-    loggers: []             # empty = all loggers (except custom_components.sift)
+    loggers: []             # empty = homeassistant.* tree (except custom_components.sift)
     # loggers:
     #   - homeassistant.components.http
     #   - custom_components
