@@ -72,6 +72,9 @@ class IngestWorker:
         self._queue: asyncio.Queue[IngestPoint] = asyncio.Queue(maxsize=queue_maxsize)
         self._task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
+        # Points taken from the queue but not yet successfully left _flush.
+        # Preserved across CancelledError so stop() can best-effort flush them.
+        self._in_flight: list[IngestPoint] = []
 
     def enqueue(self, point: IngestPoint) -> None:
         """Non-blocking enqueue; drop-oldest when full."""
@@ -98,7 +101,12 @@ class IngestWorker:
         self._task = asyncio.create_task(self._run(), name="sift_ingest_worker")
 
     async def stop(self) -> None:
-        """Stop worker and best-effort flush remaining points."""
+        """Stop worker and best-effort flush remaining points.
+
+        Cancelling the worker can interrupt an in-flight batch; those points are
+        kept on ``_in_flight`` and flushed here together with everything still
+        in the queue (in ``max_batch_points`` chunks), not just one chunk.
+        """
         self._stopped.set()
         if self._task is not None:
             self._task.cancel()
@@ -107,26 +115,43 @@ class IngestWorker:
             except asyncio.CancelledError:
                 pass
             self._task = None
-        # Best-effort final flush
-        points = self._drain(self._max_batch_points)
-        if points:
-            await self._flush(points)
+        # Best-effort final flush: reclaim cancelled batch + drain entire queue.
+        points = list(self._in_flight)
+        self._in_flight = []
+        points.extend(self._drain_all())
+        while points:
+            batch = points[: self._max_batch_points]
+            points = points[self._max_batch_points :]
+            await self._flush(batch)
 
     async def _run(self) -> None:
         while not self._stopped.is_set():
             try:
+                # _collect_batch stashes dequeued points on _in_flight as it goes
+                # so a cancel mid-collect does not silently drop them.
                 points = await self._collect_batch()
                 if not points:
                     continue
-                await self._flush(points)
+                try:
+                    await self._flush(points)
+                except asyncio.CancelledError:
+                    # Leave _in_flight populated for stop()'s final flush.
+                    raise
+                else:
+                    self._in_flight = []
             except asyncio.CancelledError:
                 raise
             except Exception:  # noqa: BLE001 — keep worker alive
+                self._in_flight = []
                 _LOGGER.exception("Sift ingest worker error; continuing")
                 await asyncio.sleep(1)
 
     async def _collect_batch(self) -> list[IngestPoint]:
-        """Wait for first point, then drain until flush interval or batch full."""
+        """Wait for first point, then drain until flush interval or batch full.
+
+        Dequeued points are mirrored onto ``_in_flight`` immediately so a
+        cancellation cannot lose them between ``queue.get`` and ``_flush``.
+        """
         try:
             first = await asyncio.wait_for(
                 self._queue.get(), timeout=self._flush_interval
@@ -135,22 +160,35 @@ class IngestWorker:
             self.stats["queue_depth"] = self._queue.qsize()
             return []
 
-        points = [first]
+        self._in_flight = [first]
         deadline = asyncio.get_running_loop().time() + self._flush_interval
-        while len(points) < self._max_batch_points:
+        while len(self._in_flight) < self._max_batch_points:
             timeout = deadline - asyncio.get_running_loop().time()
             if timeout <= 0:
                 break
             try:
-                points.append(await asyncio.wait_for(self._queue.get(), timeout=timeout))
+                self._in_flight.append(
+                    await asyncio.wait_for(self._queue.get(), timeout=timeout)
+                )
             except asyncio.TimeoutError:
                 break
         self.stats["queue_depth"] = self._queue.qsize()
-        return points
+        return list(self._in_flight)
 
     def _drain(self, limit: int) -> list[IngestPoint]:
         points: list[IngestPoint] = []
         while len(points) < limit:
+            try:
+                points.append(self._queue.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        self.stats["queue_depth"] = self._queue.qsize()
+        return points
+
+    def _drain_all(self) -> list[IngestPoint]:
+        """Remove every queued point (used on shutdown)."""
+        points: list[IngestPoint] = []
+        while True:
             try:
                 points.append(self._queue.get_nowait())
             except asyncio.QueueEmpty:

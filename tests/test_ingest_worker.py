@@ -160,3 +160,62 @@ async def test_worker_serializes_flushes() -> None:
     await worker.stop()
     assert calls >= 1
     assert max_in_flight == 1
+
+
+@pytest.mark.asyncio
+async def test_stop_flushes_entire_queue() -> None:
+    """stop() must flush all queued points, not only one max_batch_points chunk."""
+    worker = _worker(flush_interval=60.0, max_batch_points=2, queue_maxsize=50)
+    flushed: list[list] = []
+
+    async def fake_flush(points):  # noqa: ANN001
+        flushed.append(list(points))
+        worker._record_success()
+        return True
+
+    worker._flush = fake_flush  # type: ignore[method-assign]
+    # Do not start the background worker — points stay queued until stop().
+    for i in range(5):
+        worker.enqueue(IngestPoint(f"t{i}", f"sensor.{i}", i))
+    await worker.stop()
+    assert sum(len(batch) for batch in flushed) == 5
+    assert [p.channel for batch in flushed for p in batch] == [
+        "sensor.0",
+        "sensor.1",
+        "sensor.2",
+        "sensor.3",
+        "sensor.4",
+    ]
+    assert worker._queue.qsize() == 0
+
+
+@pytest.mark.asyncio
+async def test_stop_recovers_in_flight_on_cancel() -> None:
+    """Points dequeued into an interrupted flush are still sent on stop()."""
+    worker = _worker(flush_interval=0.01, max_batch_points=10, queue_maxsize=50)
+    entered = asyncio.Event()
+    flushed: list[list] = []
+    calls = 0
+
+    async def flush_then_block(points):  # noqa: ANN001
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            entered.set()
+            # First attempt is interrupted by stop()'s cancel.
+            await asyncio.sleep(60)
+            raise AssertionError("should have been cancelled")
+        flushed.append(list(points))
+        worker._record_success()
+        return True
+
+    worker._flush = flush_then_block  # type: ignore[method-assign]
+    await worker.start()
+    worker.enqueue(IngestPoint("t0", "sensor.held", 1))
+    await asyncio.wait_for(entered.wait(), timeout=1.0)
+    assert [p.channel for p in worker._in_flight] == ["sensor.held"]
+    await worker.stop()
+    assert calls == 2
+    assert sum(len(batch) for batch in flushed) == 1
+    assert flushed[0][0].channel == "sensor.held"
+
