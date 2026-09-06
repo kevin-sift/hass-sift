@@ -109,3 +109,40 @@ async def test_secret_redaction_and_truncation():
     assert "supersecret" not in enqueued[0].value
     assert "***" in enqueued[0].value
     assert len(enqueued[0].value) <= 40
+
+
+async def test_bearer_authorization_redaction():
+    """Authorization: Bearer <token> must not leak the token after the scheme."""
+    lf = _load_logging_forward()
+    worker = MagicMock()
+    enqueued = []
+    worker.enqueue = enqueued.append
+
+    handler = lf.attach_log_handler(
+        loop=asyncio.get_running_loop(),
+        worker=worker,
+        level_name="WARNING",
+        loggers=["demo"],
+        channel="homeassistant.log",
+        max_message_length=500,
+    )
+    rec = logging.LogRecord(
+        "demo.mod",
+        logging.WARNING,
+        __file__,
+        1,
+        "upstream Authorization: Bearer eyJhbGciOiJIUzI1NiJ9.payload.sig failed",
+        (),
+        None,
+    )
+    assert handler.filter(rec)
+    handler.emit(rec)
+    await asyncio.sleep(0)
+    lf.detach_log_handler(handler)
+
+    assert len(enqueued) == 1
+    body = enqueued[0].value
+    assert "eyJhbGciOiJIUzI1NiJ9" not in body
+    assert "payload.sig" not in body
+    assert "Bearer ***" in body
+

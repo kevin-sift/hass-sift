@@ -23,9 +23,34 @@ _LEVEL_BY_NAME = {
     "CRITICAL": logging.CRITICAL,
 }
 
-_SECRET_RE = re.compile(
-    r"(?i)(api[_-]?key|token|authorization|bearer|password|secret)\s*[:=]\s*\S+"
+_BEARER_RE = re.compile(r"(?i)\bbearer\s+\S+")
+_KV_SECRET_RE = re.compile(
+    r"(?i)(?:"
+    r"(?:api[_-]?key|token|password|secret)\s*[:=]\s*\S+"
+    # Skip Authorization when value is already a Bearer token (scrubbed above).
+    r"|authorization\s*[:=]\s*(?!bearer\b)\S+"
+    r")"
 )
+
+
+def _redact_secrets(message: str) -> str:
+    """Redact Bearer tokens first, then key=value / key: value secrets.
+
+    Order matters: ``Authorization: Bearer <jwt>`` must not leave the JWT
+    behind after only scrubbing the ``Authorization: Bearer`` prefix.
+    """
+    message = _BEARER_RE.sub("Bearer ***", message)
+
+    def _kv_repl(match: re.Match[str]) -> str:
+        text = match.group(0)
+        for sep in (":", "="):
+            if sep in text:
+                key, _val = text.split(sep, 1)
+                return f"{key.strip()}{sep}***"
+        return "***"
+
+    return _KV_SECRET_RE.sub(_kv_repl, message)
+
 
 
 def parse_level(name: str) -> int:
@@ -69,7 +94,7 @@ class SiftLogHandler(logging.Handler):
     def emit(self, record: logging.LogRecord) -> None:
         try:
             message = self.format(record)
-            message = _SECRET_RE.sub(r"\1=***", message)
+            message = _redact_secrets(message)
             if len(message) > self._max_message_length:
                 message = message[: self._max_message_length - 3] + "..."
 
