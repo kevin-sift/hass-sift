@@ -54,3 +54,14 @@ RUNS_MODE_ROLLING: Final = "rolling"
 DEFAULT_RUNS_MODE: Final = RUNS_MODE_NONE
 DEFAULT_RUNS_PERIOD: Final = "24h"
 
+CONF_HEALTH_STALE_AFTER: Final = "health_stale_after"
+DEFAULT_HEALTH_STALE_AFTER: Final = 300  # seconds
+
+CONF_HEARTBEAT: Final = "heartbeat"
+CONF_HEARTBEAT_ENABLED: Final = "enabled"
+CONF_HEARTBEAT_INTERVAL: Final = "interval"
+DEFAULT_HEARTBEAT_ENABLED: Final = False
+DEFAULT_HEARTBEAT_INTERVAL: Final = 60
+
+DATA_UNSUB_HEALTH: Final = "unsub_health"
+

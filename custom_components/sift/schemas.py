@@ -5,6 +5,14 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entityfilter import FILTER_SCHEMA
 
 from .const import (
+    CONF_HEALTH_STALE_AFTER,
+    CONF_HEARTBEAT,
+    CONF_HEARTBEAT_ENABLED,
+    CONF_HEARTBEAT_INTERVAL,
+    DEFAULT_HEALTH_STALE_AFTER,
+    DEFAULT_HEARTBEAT_ENABLED,
+    DEFAULT_HEARTBEAT_INTERVAL,
+
     CONF_RUNS,
     CONF_RUNS_KEY_PREFIX,
     CONF_RUNS_MODE,
@@ -69,7 +77,20 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional(
                     CONF_BACKOFF_MAX, default=DEFAULT_BACKOFF_MAX
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=600)),
-                vol.Optional(CONF_RUNS): vol.Schema(
+                vol.Optional(
+                    CONF_HEALTH_STALE_AFTER, default=DEFAULT_HEALTH_STALE_AFTER
+                ): vol.All(vol.Coerce(int), vol.Range(min=30, max=86400)),
+                vol.Optional(CONF_HEARTBEAT): vol.Schema(
+                    {
+                        vol.Optional(
+                            CONF_HEARTBEAT_ENABLED, default=DEFAULT_HEARTBEAT_ENABLED
+                        ): cv.boolean,
+                        vol.Optional(
+                            CONF_HEARTBEAT_INTERVAL, default=DEFAULT_HEARTBEAT_INTERVAL
+                        ): vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),
+                    }
+                ),
+                                vol.Optional(CONF_RUNS): vol.Schema(
                     {
                         vol.Optional(
                             CONF_RUNS_MODE, default=DEFAULT_RUNS_MODE

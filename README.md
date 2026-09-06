@@ -110,3 +110,15 @@ sift:
 ```
 
 For `period: 24h`, bucket is UTC `YYYY-MM-DD` (e.g. `hass_sift_local_test-2026-09-06`). Sift creates the run when it first sees that `client_key`.
+
+### Health + heartbeat (integration)
+
+```yaml
+sift:
+  health_stale_after: 300   # seconds without success → binary_sensor.sift_ingest_ok off
+  heartbeat:
+    enabled: true
+    interval: 60            # toggles binary_sensor.sift_heartbeat + forces ingest
+```
+
+Entities: `binary_sensor.sift_ingest_ok`, `binary_sensor.sift_heartbeat`, `sensor.sift_last_success`, failure/queue/drop diagnostics.

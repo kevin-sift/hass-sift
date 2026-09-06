@@ -3,24 +3,29 @@
 Ingests Home Assistant state changes into Sift (https://www.siftstack.com)
 via schemaless REST, using a shared ClientSession, bounded queue, and batched
 POSTs with retry/backoff. Optionally forwards selected log lines as a string
-channel.
+channel, exposes health diagnostics, and can emit a heartbeat canary.
 """
 
 from __future__ import annotations
 
 import logging
+from datetime import timedelta
 
 import aiohttp
 from homeassistant.const import (
     EVENT_HOMEASSISTANT_STOP,
     EVENT_STATE_CHANGED,
+    Platform,
     STATE_UNAVAILABLE,
     STATE_UNKNOWN,
 )
 from homeassistant.core import Event, HomeAssistant, State, callback
+from homeassistant.helpers import discovery
+from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
+from .binary_sensor import SiftHeartbeatBinarySensor
 from .const import (
     CONF_API_KEY,
     CONF_API_URI,
@@ -30,6 +35,10 @@ from .const import (
     CONF_FILTER,
     CONF_FLUSH_INTERVAL,
     CONF_FORWARD_LOGS,
+    CONF_HEALTH_STALE_AFTER,
+    CONF_HEARTBEAT,
+    CONF_HEARTBEAT_ENABLED,
+    CONF_HEARTBEAT_INTERVAL,
     CONF_LOGS_CHANNEL,
     CONF_LOGS_ENABLED,
     CONF_LOGS_LEVEL,
@@ -50,6 +59,9 @@ from .const import (
     DEFAULT_BACKOFF_BASE,
     DEFAULT_BACKOFF_MAX,
     DEFAULT_FLUSH_INTERVAL,
+    DEFAULT_HEALTH_STALE_AFTER,
+    DEFAULT_HEARTBEAT_ENABLED,
+    DEFAULT_HEARTBEAT_INTERVAL,
     DEFAULT_LOGS_CHANNEL,
     DEFAULT_LOGS_ENABLED,
     DEFAULT_LOGS_LEVEL,
@@ -66,6 +78,8 @@ from .logging_forward import attach_log_handler, detach_log_handler
 from .schemas import CONFIG_SCHEMA, STATE_VALUE_SCHEMA
 
 _LOGGER = logging.getLogger(__name__)
+
+HEARTBEAT_ENTITY_ID = "binary_sensor.sift_heartbeat"
 
 __all__ = ["CONFIG_SCHEMA", "async_setup"]
 
@@ -85,6 +99,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     max_retries = conf.get(CONF_MAX_RETRIES, DEFAULT_MAX_RETRIES)
     backoff_base = conf.get(CONF_BACKOFF_BASE, DEFAULT_BACKOFF_BASE)
     backoff_max = conf.get(CONF_BACKOFF_MAX, DEFAULT_BACKOFF_MAX)
+    health_stale_after = conf.get(CONF_HEALTH_STALE_AFTER, DEFAULT_HEALTH_STALE_AFTER)
 
     stats = empty_stats()
     timeout = aiohttp.ClientTimeout(total=30)
@@ -112,15 +127,22 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         runs_key_prefix=runs_key_prefix,
     )
 
+    heartbeat: SiftHeartbeatBinarySensor | None = None
+    hb_conf = conf.get(CONF_HEARTBEAT) or {}
+    if hb_conf.get(CONF_HEARTBEAT_ENABLED, DEFAULT_HEARTBEAT_ENABLED):
+        heartbeat = SiftHeartbeatBinarySensor()
+
     hass.data[DOMAIN] = {
         CONF_API_URI: api_uri,
         CONF_API_KEY: api_key,
         CONF_ASSET: asset,
         CONF_FILTER: entity_filter,
+        CONF_HEALTH_STALE_AFTER: health_stale_after,
         DATA_SESSION: session,
         DATA_WORKER: worker,
         DATA_STATS: stats,
         DATA_LOG_HANDLER: None,
+        "heartbeat_entity": heartbeat,
     }
 
     await worker.start()
@@ -149,10 +171,17 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         """Enqueue qualifying state changes (no I/O on the event bus)."""
         new_state: State | None = event.data.get("new_state")
 
-        if (
-            new_state is None
-            or new_state.state in (STATE_UNKNOWN, "", STATE_UNAVAILABLE, None)
-            or not entity_filter(new_state.entity_id)
+        if new_state is None or new_state.state in (
+            STATE_UNKNOWN,
+            "",
+            STATE_UNAVAILABLE,
+            None,
+        ):
+            return
+
+        # Heartbeat always passes the filter.
+        if new_state.entity_id != HEARTBEAT_ENTITY_ID and not entity_filter(
+            new_state.entity_id
         ):
             return
 
@@ -176,8 +205,52 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     unsub = hass.bus.async_listen(EVENT_STATE_CHANGED, handle_event)
     hass.data[DOMAIN][DATA_UNSUB] = unsub
 
+    # Diagnostic platforms (YAML discovery).
+    hass.async_create_task(
+        discovery.async_load_platform(
+            hass, Platform.BINARY_SENSOR, DOMAIN, {}, config
+        )
+    )
+    hass.async_create_task(
+        discovery.async_load_platform(hass, Platform.SENSOR, DOMAIN, {}, config)
+    )
+
+    unsub_heartbeat = None
+    if heartbeat is not None:
+        interval = int(
+            hb_conf.get(CONF_HEARTBEAT_INTERVAL, DEFAULT_HEARTBEAT_INTERVAL)
+        )
+
+        @callback
+        def _heartbeat_tick(_now) -> None:
+            heartbeat.toggle()
+            if heartbeat.hass is not None:
+                heartbeat.async_write_ha_state()
+            # Force ingest even if state_changed is slow/missed.
+            timestamp = (
+                dt_util.utcnow()
+                .isoformat(timespec="milliseconds")
+                .replace("+00:00", "Z")
+            )
+            worker.enqueue(
+                IngestPoint(
+                    timestamp=timestamp,
+                    channel=HEARTBEAT_ENTITY_ID,
+                    value="on" if heartbeat.is_on else "off",
+                )
+            )
+
+        unsub_heartbeat = async_track_time_interval(
+            hass, _heartbeat_tick, timedelta(seconds=interval)
+        )
+        _LOGGER.info(
+            "Sift heartbeat enabled every %ss → %s", interval, HEARTBEAT_ENTITY_ID
+        )
+
     async def _on_stop(_event: Event) -> None:
         detach_log_handler(hass.data.get(DOMAIN, {}).get(DATA_LOG_HANDLER))
+        if unsub_heartbeat:
+            unsub_heartbeat()
         unsub_fn = hass.data.get(DOMAIN, {}).get(DATA_UNSUB)
         if unsub_fn:
             unsub_fn()

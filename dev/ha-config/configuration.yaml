@@ -22,6 +22,10 @@ sift:
   runs:
     mode: rolling
     period: 24h
+  health_stale_after: 120
+  heartbeat:
+    enabled: true
+    interval: 30
   forward_logs:
     enabled: true
     level: WARNING
