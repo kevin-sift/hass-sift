@@ -1,26 +1,26 @@
 # Sift Home Assistant Custom Component
 
-This is a prototype custom component to ingest Home Assistant data into Sift's Hardware Observability Platform (https://siftstack.com/)
+Prototype custom component that ingests Home Assistant data into Sift's Hardware Observability Platform (https://siftstack.com/).
 
 ## Installation
 
-Copy `custom_components/sift/` in this repo to `<config_dir>/custom_components/sift/` where `<config_dir>` is where your Home Assistant unique configurations are stored (for example where configuration.yaml is stored)
+Copy `custom_components/sift/` in this repo to `<config_dir>/custom_components/sift/` where `<config_dir>` is where your Home Assistant unique configurations are stored (for example where `configuration.yaml` is stored).
 
-Once the custom component is installed in the correct directory, add the following to your `configuration.yaml` file in your `<config_dir>`. Also, ensure you are using the correct API URI, API KEY and ASSET for your specific Sift deployment.
+Once the custom component is installed, add the following to your `configuration.yaml`. Use the correct API URI, API key, and asset name for your Sift deployment. Prefer `!secret` for the API key.
 
 ```yaml
 sift:
   api_uri: https://<uri>/api/v2/ingest
-  api_key: <token>
+  api_key: !secret sift_api_key
   asset: my_hass_asset_name
 ```
 
-Users can also filter what data is ingested into Sift. For example:
+### Filtering
 
 ```yaml
 sift:
   api_uri: https://<uri>/api/v2/ingest
-  api_key: <token>
+  api_key: !secret sift_api_key
   asset: my_hass_asset_name
   filter:
     include_domains:
@@ -33,7 +33,36 @@ sift:
       - switch
 ```
 
+An empty / omitted filter matches **all** entities. Prefer an include list to limit event volume.
+
+### Optional ingest tuning (v0.2+)
+
+All optional; defaults shown:
+
+```yaml
+sift:
+  api_uri: https://<uri>/api/v2/ingest
+  api_key: !secret sift_api_key
+  asset: my_hass_asset_name
+  flush_interval: 0.25      # seconds between batch flushes
+  max_batch_points: 100     # max points per POST
+  queue_maxsize: 2000       # bounded queue; drop-oldest when full
+  max_retries: 5            # retries for 408/429/5xx/network
+  backoff_base: 0.5         # seconds
+  backoff_max: 30           # seconds
+```
+
+## Behavior (v0.2)
+
+- Listens to `state_changed`, channels named as full `entity_id` (unchanged).
+- Skips `unknown` / `unavailable` / empty / removed entities.
+- Uses **one** shared `aiohttp` session, a **bounded queue**, and a **single worker** that batches points into schemaless POSTs.
+- Retries transient HTTP/network failures with exponential backoff. **Does not** retry 401/403 (sets `auth_failed` in stats).
+- When the queue is full, **oldest** points are dropped (`dropped_points` counter).
+- Runtime stats live at `hass.data["sift"]["stats"]` (for a future health `binary_sensor`): `last_success`, `consecutive_failures`, `dropped_points`, `queue_depth`, `auth_failed`, `last_error`.
+- No recorder backfill — points missed while Sift/API was unreachable are not replayed.
+
 ## Technical Notes
 
-* This is a prototype and must be manually installed into Home Assistant. Future iterations can formalize this as an offiical [Home Assistant Integration](https://www.home-assistant.io/integrations/?brands=featured) or [HACS](https://www.hacs.xyz).
-* This component uses Sift's [Schemaless Ingestion](https://docs.siftstack.com/docs/ingestion/schemaless-ingestion) API. Enumerated data types will show up as log data in Sift.
+* Prototype; manually installed. Future work: health entities, Config Flow / HACS.
+* Uses Sift [Schemaless Ingestion](https://docs.siftstack.com/documentation/reference/stream/schemaless-ingestion-reference). Enumerated string states show up as log/string data in Sift.
