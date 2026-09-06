@@ -1,8 +1,10 @@
 {
   "domain": "sift",
   "name": "Sift",
-  "version": "0.1.0",
-  "documentation": "https://github.com/mbacch/hass-sift/", 
-  "codeowners": ["@mbacch"],
+  "version": "0.2.0",
+  "documentation": "https://github.com/mbacch/hass-sift/",
+  "codeowners": [
+    "@mbacch"
+  ],
   "requirements": []
 }
