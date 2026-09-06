@@ -43,3 +43,14 @@ DATA_WORKER: Final = "worker"
 DATA_STATS: Final = "stats"
 DATA_UNSUB: Final = "unsub_state_changed"
 DATA_LOG_HANDLER: Final = "log_handler"
+
+CONF_RUNS: Final = "runs"
+CONF_RUNS_MODE: Final = "mode"
+CONF_RUNS_PERIOD: Final = "period"
+CONF_RUNS_KEY_PREFIX: Final = "key_prefix"
+
+RUNS_MODE_NONE: Final = "none"
+RUNS_MODE_ROLLING: Final = "rolling"
+DEFAULT_RUNS_MODE: Final = RUNS_MODE_NONE
+DEFAULT_RUNS_PERIOD: Final = "24h"
+

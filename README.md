@@ -93,3 +93,20 @@ Notes:
 * Obvious `api_key` / `token` / `bearer` / `password` snippets are redacted to `***`.
 * The component never forwards its own `custom_components.sift*` logs (recursion guard).
 * Log volume can be high — prefer `WARNING`+ and a logger allowlist.
+
+### Optional rolling runs (integration)
+
+By default ingest is **asset-only** (no run). To roll a new Sift run on a cadence via schemaless `run_config.client_key`:
+
+```yaml
+sift:
+  api_uri: https://<uri>/api/v2/ingest
+  api_key: !secret sift_api_key
+  asset: hass_sift_local_test
+  runs:
+    mode: rolling          # or none (default)
+    period: 24h            # 24h / 1d / 6h / 30m / seconds
+    # key_prefix: my-ha    # default = asset name; key becomes {prefix}-{bucket}
+```
+
+For `period: 24h`, bucket is UTC `YYYY-MM-DD` (e.g. `hass_sift_local_test-2026-09-06`). Sift creates the run when it first sees that `client_key`.

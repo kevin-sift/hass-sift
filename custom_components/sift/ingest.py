@@ -14,6 +14,44 @@ import aiohttp
 
 from .schemas import PAYLOAD_SCHEMA
 
+def parse_period_seconds(period: str | int) -> int:
+    """Parse period like 86400, '24h', '1d', '6h', '30m' into seconds."""
+    if isinstance(period, int):
+        return period
+    raw = str(period).strip().lower()
+    if raw.isdigit():
+        return int(raw)
+    units = {"s": 1, "m": 60, "h": 3600, "d": 86400}
+    if raw[-1] in units and raw[:-1].replace(".", "", 1).isdigit():
+        return int(float(raw[:-1]) * units[raw[-1]])
+    raise ValueError(f"unsupported runs.period: {period!r}")
+
+
+def rolling_bucket_id(period_seconds: int, when: datetime | None = None) -> str:
+    """Stable bucket label for client_key (UTC).
+
+    24h (86400) buckets use YYYY-MM-DD. Other periods use floor(epoch/period).
+    """
+    when = when or datetime.now(timezone.utc)
+    if period_seconds == 86400:
+        return when.strftime("%Y-%m-%d")
+    epoch = int(when.timestamp())
+    bucket = epoch // period_seconds
+    return f"p{period_seconds}-{bucket}"
+
+
+def sanitize_key_part(value: str) -> str:
+    """Keep client_key chars within Sift-ish safe set."""
+    out = []
+    for ch in value:
+        if ch.isalnum() or ch in "_~.-":
+            out.append(ch)
+        else:
+            out.append("-")
+    cleaned = "".join(out).strip("-._")
+    return cleaned or "run"
+
+
 _LOGGER = logging.getLogger(__name__)
 
 _RETRYABLE_STATUS = frozenset({408, 429, 500, 502, 503, 504})
@@ -38,6 +76,7 @@ def empty_stats() -> dict[str, Any]:
         "queue_depth": 0,
         "auth_failed": False,
         "last_error": None,
+        "current_run_client_key": None,
     }
 
 
@@ -58,6 +97,9 @@ class IngestWorker:
         max_retries: int,
         backoff_base: float,
         backoff_max: float,
+        runs_mode: str = "none",
+        runs_period: str | int = "24h",
+        runs_key_prefix: str | None = None,
     ) -> None:
         self._session = session
         self._api_uri = api_uri
@@ -69,6 +111,9 @@ class IngestWorker:
         self._max_retries = max_retries
         self._backoff_base = backoff_base
         self._backoff_max = backoff_max
+        self._runs_mode = runs_mode
+        self._runs_period_seconds = parse_period_seconds(runs_period)
+        self._runs_key_prefix = sanitize_key_part(runs_key_prefix or asset)
         self._queue: asyncio.Queue[IngestPoint] = asyncio.Queue(maxsize=queue_maxsize)
         self._task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
@@ -158,23 +203,43 @@ class IngestWorker:
         self.stats["queue_depth"] = self._queue.qsize()
         return points
 
+    def current_run_config(self) -> dict[str, str] | None:
+        """Return schemaless run_config for rolling mode, else None."""
+        if self._runs_mode != "rolling":
+            return None
+        bucket = rolling_bucket_id(self._runs_period_seconds)
+        client_key = f"{self._runs_key_prefix}-{bucket}"
+        # Sift client_key: 3-128 chars, start/end alnum
+        if len(client_key) < 3:
+            client_key = f"run-{client_key}"
+        client_key = client_key[:128]
+        self.stats["current_run_client_key"] = client_key
+        return {"client_key": client_key, "name": client_key}
+
     @staticmethod
-    def build_payload(asset: str, points: list[IngestPoint]) -> dict[str, Any]:
+    def build_payload(
+        asset: str,
+        points: list[IngestPoint],
+        run_config: dict[str, str] | None = None,
+    ) -> dict[str, Any]:
         """Group points by timestamp into a schemaless ingest body."""
         grouped: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
         for point in points:
             grouped.setdefault(point.timestamp, []).append(
                 {"channel": point.channel, "value": point.value}
             )
-        return {
+        payload: dict[str, Any] = {
             "asset_name": asset,
             "data": [
                 {"timestamp": ts, "values": values} for ts, values in grouped.items()
             ],
         }
+        if run_config:
+            payload["run_config"] = run_config
+        return payload
 
     async def _flush(self, points: list[IngestPoint]) -> bool:
-        payload = self.build_payload(self._asset, points)
+        payload = self.build_payload(self._asset, points, self.current_run_config())
         try:
             validated = PAYLOAD_SCHEMA(payload)
         except Exception as exc:  # noqa: BLE001

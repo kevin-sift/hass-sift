@@ -160,3 +160,45 @@ async def test_worker_serializes_flushes() -> None:
     await worker.stop()
     assert calls >= 1
     assert max_in_flight == 1
+
+
+def test_rolling_bucket_and_run_config():
+    from datetime import datetime, timezone
+
+    from custom_components.sift.ingest import (
+        IngestWorker,
+        parse_period_seconds,
+        rolling_bucket_id,
+    )
+
+    assert parse_period_seconds("24h") == 86400
+    assert parse_period_seconds("1d") == 86400
+    assert parse_period_seconds(3600) == 3600
+    when = datetime(2026, 9, 6, 15, 30, tzinfo=timezone.utc)
+    assert rolling_bucket_id(86400, when) == "2026-09-06"
+
+    worker = _worker(
+        runs_mode="rolling",
+        runs_period="24h",
+        runs_key_prefix="hass_sift_local_test",
+    )
+    cfg = worker.current_run_config()
+    assert cfg is not None
+    assert cfg["client_key"].startswith("hass_sift_local_test-")
+    payload = IngestWorker.build_payload(
+        "hass_sift_local_test",
+        [IngestPoint("2026-09-06T00:00:00.000Z", "sensor.x", 1.0)],
+        cfg,
+    )
+    assert payload["run_config"]["client_key"] == cfg["client_key"]
+
+
+def test_no_run_config_when_mode_none():
+    worker = _worker(runs_mode="none")
+    assert worker.current_run_config() is None
+    payload = IngestWorker.build_payload(
+        "asset",
+        [IngestPoint("t", "sensor.x", 1)],
+        worker.current_run_config(),
+    )
+    assert "run_config" not in payload

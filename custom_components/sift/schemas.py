@@ -5,6 +5,15 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entityfilter import FILTER_SCHEMA
 
 from .const import (
+    CONF_RUNS,
+    CONF_RUNS_KEY_PREFIX,
+    CONF_RUNS_MODE,
+    CONF_RUNS_PERIOD,
+    DEFAULT_RUNS_MODE,
+    DEFAULT_RUNS_PERIOD,
+    RUNS_MODE_NONE,
+    RUNS_MODE_ROLLING,
+
     CONF_FORWARD_LOGS,
     CONF_LOGS_CHANNEL,
     CONF_LOGS_ENABLED,
@@ -60,6 +69,20 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional(
                     CONF_BACKOFF_MAX, default=DEFAULT_BACKOFF_MAX
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=600)),
+                vol.Optional(CONF_RUNS): vol.Schema(
+                    {
+                        vol.Optional(
+                            CONF_RUNS_MODE, default=DEFAULT_RUNS_MODE
+                        ): vol.In([RUNS_MODE_NONE, RUNS_MODE_ROLLING]),
+                        vol.Optional(
+                            CONF_RUNS_PERIOD, default=DEFAULT_RUNS_PERIOD
+                        ): vol.Any(
+                            vol.All(vol.Coerce(int), vol.Range(min=60, max=86400 * 30)),
+                            cv.string,
+                        ),
+                        vol.Optional(CONF_RUNS_KEY_PREFIX): cv.string,
+                    }
+                ),
                 vol.Optional(CONF_FORWARD_LOGS): vol.Schema(
                     {
                         vol.Optional(
@@ -96,6 +119,12 @@ STATE_VALUE_SCHEMA = vol.Any(
 PAYLOAD_SCHEMA = vol.Schema(
     {
         vol.Required("asset_name"): str,
+        vol.Optional("run_config"): vol.Schema(
+            {
+                vol.Required("client_key"): str,
+                vol.Optional("name"): str,
+            }
+        ),
         vol.Required("data"): [
             {
                 vol.Required("timestamp"): str,

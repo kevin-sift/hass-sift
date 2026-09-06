@@ -19,6 +19,9 @@ sift:
       - input_boolean.sift_canary
   flush_interval: 0.2
   max_batch_points: 50
+  runs:
+    mode: rolling
+    period: 24h
   forward_logs:
     enabled: true
     level: WARNING

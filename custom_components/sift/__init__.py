@@ -38,6 +38,10 @@ from .const import (
     CONF_MAX_BATCH_POINTS,
     CONF_MAX_RETRIES,
     CONF_QUEUE_MAXSIZE,
+    CONF_RUNS,
+    CONF_RUNS_KEY_PREFIX,
+    CONF_RUNS_MODE,
+    CONF_RUNS_PERIOD,
     DATA_LOG_HANDLER,
     DATA_SESSION,
     DATA_STATS,
@@ -53,6 +57,8 @@ from .const import (
     DEFAULT_MAX_BATCH_POINTS,
     DEFAULT_MAX_RETRIES,
     DEFAULT_QUEUE_MAXSIZE,
+    DEFAULT_RUNS_MODE,
+    DEFAULT_RUNS_PERIOD,
     DOMAIN,
 )
 from .ingest import IngestPoint, IngestWorker, empty_stats
@@ -84,6 +90,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     timeout = aiohttp.ClientTimeout(total=30)
     session = aiohttp.ClientSession(timeout=timeout)
 
+    runs_conf = conf.get(CONF_RUNS) or {}
+    runs_mode = runs_conf.get(CONF_RUNS_MODE, DEFAULT_RUNS_MODE)
+    runs_period = runs_conf.get(CONF_RUNS_PERIOD, DEFAULT_RUNS_PERIOD)
+    runs_key_prefix = runs_conf.get(CONF_RUNS_KEY_PREFIX)
+
     worker = IngestWorker(
         session=session,
         api_uri=api_uri,
@@ -96,6 +107,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         max_retries=max_retries,
         backoff_base=backoff_base,
         backoff_max=backoff_max,
+        runs_mode=runs_mode,
+        runs_period=runs_period,
+        runs_key_prefix=runs_key_prefix,
     )
 
     hass.data[DOMAIN] = {
@@ -174,10 +188,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _on_stop)
 
     _LOGGER.info(
-        "Sift ingest ready for asset %s (flush=%.2fs, batch=%s, queue=%s)",
+        "Sift ingest ready for asset %s (flush=%.2fs, batch=%s, queue=%s, runs=%s)",
         asset,
         flush_interval,
         max_batch_points,
         queue_maxsize,
+        runs_mode,
     )
     return True
