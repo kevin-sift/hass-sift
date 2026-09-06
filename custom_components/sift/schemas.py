@@ -5,16 +5,6 @@ from homeassistant.helpers import config_validation as cv
 from homeassistant.helpers.entityfilter import FILTER_SCHEMA
 
 from .const import (
-    CONF_FORWARD_LOGS,
-    CONF_LOGS_CHANNEL,
-    CONF_LOGS_ENABLED,
-    CONF_LOGS_LEVEL,
-    CONF_LOGS_LOGGERS,
-    CONF_LOGS_MAX_LENGTH,
-    DEFAULT_LOGS_CHANNEL,
-    DEFAULT_LOGS_ENABLED,
-    DEFAULT_LOGS_LEVEL,
-    DEFAULT_LOGS_MAX_LENGTH,
     CONF_API_KEY,
     CONF_API_URI,
     CONF_ASSET,
@@ -22,12 +12,29 @@ from .const import (
     CONF_BACKOFF_MAX,
     CONF_FILTER,
     CONF_FLUSH_INTERVAL,
+    CONF_FORWARD_LOGS,
+    CONF_HEALTH_STALE_AFTER,
+    CONF_HEARTBEAT,
+    CONF_HEARTBEAT_ENABLED,
+    CONF_HEARTBEAT_INTERVAL,
+    CONF_LOGS_CHANNEL,
+    CONF_LOGS_ENABLED,
+    CONF_LOGS_LEVEL,
+    CONF_LOGS_LOGGERS,
+    CONF_LOGS_MAX_LENGTH,
     CONF_MAX_BATCH_POINTS,
     CONF_MAX_RETRIES,
     CONF_QUEUE_MAXSIZE,
     DEFAULT_BACKOFF_BASE,
     DEFAULT_BACKOFF_MAX,
     DEFAULT_FLUSH_INTERVAL,
+    DEFAULT_HEALTH_STALE_AFTER,
+    DEFAULT_HEARTBEAT_ENABLED,
+    DEFAULT_HEARTBEAT_INTERVAL,
+    DEFAULT_LOGS_CHANNEL,
+    DEFAULT_LOGS_ENABLED,
+    DEFAULT_LOGS_LEVEL,
+    DEFAULT_LOGS_MAX_LENGTH,
     DEFAULT_MAX_BATCH_POINTS,
     DEFAULT_MAX_RETRIES,
     DEFAULT_QUEUE_MAXSIZE,
@@ -60,6 +67,19 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Optional(
                     CONF_BACKOFF_MAX, default=DEFAULT_BACKOFF_MAX
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.5, max=600)),
+                vol.Optional(
+                    CONF_HEALTH_STALE_AFTER, default=DEFAULT_HEALTH_STALE_AFTER
+                ): vol.All(vol.Coerce(int), vol.Range(min=30, max=86400)),
+                vol.Optional(CONF_HEARTBEAT): vol.Schema(
+                    {
+                        vol.Optional(
+                            CONF_HEARTBEAT_ENABLED, default=DEFAULT_HEARTBEAT_ENABLED
+                        ): cv.boolean,
+                        vol.Optional(
+                            CONF_HEARTBEAT_INTERVAL, default=DEFAULT_HEARTBEAT_INTERVAL
+                        ): vol.All(vol.Coerce(int), vol.Range(min=10, max=3600)),
+                    }
+                ),
                 vol.Optional(CONF_FORWARD_LOGS): vol.Schema(
                     {
                         vol.Optional(

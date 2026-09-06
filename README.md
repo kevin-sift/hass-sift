@@ -59,12 +59,12 @@ sift:
 - Uses **one** shared `aiohttp` session, a **bounded queue**, and a **single worker** that batches points into schemaless POSTs.
 - Retries transient HTTP/network failures with exponential backoff. **Does not** retry 401/403 (sets `auth_failed` in stats).
 - When the queue is full, **oldest** points are dropped (`dropped_points` counter).
-- Runtime stats live at `hass.data["sift"]["stats"]` (for a future health `binary_sensor`): `last_success`, `consecutive_failures`, `dropped_points`, `queue_depth`, `auth_failed`, `last_error`.
+- Runtime stats live at `hass.data["sift"]["stats"]` and are exposed as diagnostic entities (v0.4+): `last_success`, `consecutive_failures`, `dropped_points`, `queue_depth`, `auth_failed`, `last_error`.
 - No recorder backfill — points missed while Sift/API was unreachable are not replayed.
 
 ## Technical Notes
 
-* Prototype; manually installed. Future work: health entities, Config Flow / HACS.
+* Prototype; manually installed. Future work: Config Flow / HACS.
 * Uses Sift [Schemaless Ingestion](https://docs.siftstack.com/documentation/reference/stream/schemaless-ingestion-reference). Enumerated string states show up as log/string data in Sift.
 
 ### Optional log forwarding (v0.3+)
@@ -93,3 +93,39 @@ Notes:
 * Obvious `api_key` / `token` / `bearer` / `password` snippets are redacted to `***`.
 * The component never forwards its own `custom_components.sift*` logs (recursion guard).
 * Log volume can be high — prefer `WARNING`+ and a logger allowlist.
+
+### Health diagnostics + heartbeat canary (v0.4+)
+
+Always creates diagnostic entities so HA (and Limburg Home) can see cold ingest while the HA UI still looks fine:
+
+| Entity | Meaning |
+|---|---|
+| `binary_sensor.sift_ingest_ok` | `on` if last HTTP 200 within `health_stale_after` and auth OK; else `off` |
+| `sensor.sift_last_success` | ISO timestamp of last successful POST |
+| `sensor.sift_consecutive_failures` | int |
+| `sensor.sift_queue_depth` | current queue depth |
+| `sensor.sift_dropped_points` | cumulative drop-oldest overflows |
+
+Optional heartbeat (off by default) toggles a canary entity on an interval **and** force-enqueues it through the same ingest queue (bypasses entity filter):
+
+```yaml
+sift:
+  api_uri: https://<uri>/api/v2/ingest
+  api_key: !secret sift_api_key
+  asset: limburghome_ha
+  health_stale_after: 300   # seconds without success → sift_ingest_ok off
+  heartbeat:
+    enabled: true
+    interval: 60            # toggles binary_sensor.sift_heartbeat + forces ingest
+```
+
+Canary channel / entity: `binary_sensor.sift_heartbeat` (values `on`/`off`).
+
+**Limburg Home validation**
+
+1. Deploy `custom_components/sift/` (v0.4.0+) and enable `heartbeat.enabled: true`.
+2. Confirm HA entities appear: `binary_sensor.sift_ingest_ok`, `sensor.sift_last_success`, `binary_sensor.sift_heartbeat`.
+3. On asset `limburghome_ha`, channel `binary_sensor.sift_heartbeat` should update about every `interval` seconds.
+4. Kill API key / block network → within ≤1–2 flush+backoff cycles, `binary_sensor.sift_ingest_ok` goes `off`; HA otherwise healthy.
+5. Restore → sensor returns `on`; canary resumes without HA restart.
+6. Existing channels keep the same `entity_id` names/types.

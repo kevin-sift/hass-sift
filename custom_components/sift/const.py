@@ -23,6 +23,15 @@ CONF_LOGS_LOGGERS: Final = "loggers"
 CONF_LOGS_CHANNEL: Final = "channel"
 CONF_LOGS_MAX_LENGTH: Final = "max_message_length"
 
+CONF_HEALTH_STALE_AFTER: Final = "health_stale_after"
+DEFAULT_HEALTH_STALE_AFTER: Final = 300  # seconds
+
+CONF_HEARTBEAT: Final = "heartbeat"
+CONF_HEARTBEAT_ENABLED: Final = "enabled"
+CONF_HEARTBEAT_INTERVAL: Final = "interval"
+DEFAULT_HEARTBEAT_ENABLED: Final = False
+DEFAULT_HEARTBEAT_INTERVAL: Final = 60
+
 DEFAULT_FLUSH_INTERVAL: Final = 0.25
 DEFAULT_MAX_BATCH_POINTS: Final = 100
 DEFAULT_QUEUE_MAXSIZE: Final = 2000
@@ -43,3 +52,7 @@ DATA_WORKER: Final = "worker"
 DATA_STATS: Final = "stats"
 DATA_UNSUB: Final = "unsub_state_changed"
 DATA_LOG_HANDLER: Final = "log_handler"
+DATA_HEARTBEAT_ENTITY: Final = "heartbeat_entity"
+DATA_UNSUB_HEARTBEAT: Final = "unsub_heartbeat"
+
+HEARTBEAT_ENTITY_ID: Final = "binary_sensor.sift_heartbeat"
