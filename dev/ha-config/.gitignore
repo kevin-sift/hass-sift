@@ -6,3 +6,6 @@ tts/
 *.log
 .HA_VERSION
 custom_components/
+blueprints/
+.ha_run.lock
+home-assistant.log*
