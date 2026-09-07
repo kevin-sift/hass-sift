@@ -84,6 +84,33 @@ def test_build_payload_groups_same_timestamp() -> None:
     ]
 
 
+def test_build_payload_dedupes_channel_last_write_wins() -> None:
+    """Same channel twice at one timestamp must not produce duplicate values."""
+    points = [
+        IngestPoint("2026-01-01T00:00:00.000Z", "binary_sensor.sift_heartbeat", "off"),
+        IngestPoint("2026-01-01T00:00:00.000Z", "sensor.a", 1.0),
+        IngestPoint("2026-01-01T00:00:00.000Z", "binary_sensor.sift_heartbeat", "on"),
+    ]
+    payload = IngestWorker.build_payload("asset", points)
+    assert len(payload["data"]) == 1
+    values = payload["data"][0]["values"]
+    channels = [v["channel"] for v in values]
+    assert channels.count("binary_sensor.sift_heartbeat") == 1
+    assert {"channel": "binary_sensor.sift_heartbeat", "value": "on"} in values
+    assert {"channel": "sensor.a", "value": 1.0} in values
+
+
+def test_build_payload_same_channel_different_timestamps_ok() -> None:
+    points = [
+        IngestPoint("2026-01-01T00:00:00.000Z", "sensor.a", 1.0),
+        IngestPoint("2026-01-01T00:00:00.001Z", "sensor.a", 2.0),
+    ]
+    payload = IngestWorker.build_payload("asset", points)
+    assert len(payload["data"]) == 2
+    assert payload["data"][0]["values"] == [{"channel": "sensor.a", "value": 1.0}]
+    assert payload["data"][1]["values"] == [{"channel": "sensor.a", "value": 2.0}]
+
+
 def test_enqueue_drop_oldest() -> None:
     worker = _worker(queue_maxsize=2)
     worker.enqueue(IngestPoint("t1", "sensor.a", 1))
