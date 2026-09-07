@@ -56,3 +56,10 @@ DATA_HEARTBEAT_ENTITY: Final = "heartbeat_entity"
 DATA_UNSUB_HEARTBEAT: Final = "unsub_heartbeat"
 
 HEARTBEAT_ENTITY_ID: Final = "binary_sensor.sift_heartbeat"
+
+# Opt-in attribute forwarding (schemaless channels: {entity_id}.{attr})
+CONF_FORWARD_ATTRIBUTES: Final = "forward_attributes"
+CONF_ATTR_ENTITY_ID: Final = "entity_id"
+CONF_ATTR_DOMAIN: Final = "domain"
+CONF_ATTR_ATTRIBUTES: Final = "attributes"
+DEFAULT_FORWARD_ATTRIBUTES: Final = []

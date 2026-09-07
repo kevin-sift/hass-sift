@@ -8,10 +8,14 @@ from .const import (
     CONF_API_KEY,
     CONF_API_URI,
     CONF_ASSET,
+    CONF_ATTR_ATTRIBUTES,
+    CONF_ATTR_DOMAIN,
+    CONF_ATTR_ENTITY_ID,
     CONF_BACKOFF_BASE,
     CONF_BACKOFF_MAX,
     CONF_FILTER,
     CONF_FLUSH_INTERVAL,
+    CONF_FORWARD_ATTRIBUTES,
     CONF_FORWARD_LOGS,
     CONF_HEALTH_STALE_AFTER,
     CONF_HEARTBEAT,
@@ -28,6 +32,7 @@ from .const import (
     DEFAULT_BACKOFF_BASE,
     DEFAULT_BACKOFF_MAX,
     DEFAULT_FLUSH_INTERVAL,
+    DEFAULT_FORWARD_ATTRIBUTES,
     DEFAULT_HEALTH_STALE_AFTER,
     DEFAULT_HEARTBEAT_ENABLED,
     DEFAULT_HEARTBEAT_INTERVAL,
@@ -39,6 +44,23 @@ from .const import (
     DEFAULT_MAX_RETRIES,
     DEFAULT_QUEUE_MAXSIZE,
     DOMAIN,
+)
+
+_ATTR_LIST = vol.All(cv.ensure_list, [cv.string], vol.Length(min=1))
+
+FORWARD_ATTRIBUTES_ENTRY_SCHEMA = vol.Any(
+    vol.Schema(
+        {
+            vol.Required(CONF_ATTR_ENTITY_ID): cv.string,
+            vol.Required(CONF_ATTR_ATTRIBUTES): _ATTR_LIST,
+        }
+    ),
+    vol.Schema(
+        {
+            vol.Required(CONF_ATTR_DOMAIN): cv.string,
+            vol.Required(CONF_ATTR_ATTRIBUTES): _ATTR_LIST,
+        }
+    ),
 )
 
 CONFIG_SCHEMA = vol.Schema(
@@ -101,6 +123,9 @@ CONFIG_SCHEMA = vol.Schema(
                         ): vol.All(vol.Coerce(int), vol.Range(min=50, max=4000)),
                     }
                 ),
+                vol.Optional(
+                    CONF_FORWARD_ATTRIBUTES, default=DEFAULT_FORWARD_ATTRIBUTES
+                ): vol.All(cv.ensure_list, [FORWARD_ATTRIBUTES_ENTRY_SCHEMA]),
             }
         )
     },
