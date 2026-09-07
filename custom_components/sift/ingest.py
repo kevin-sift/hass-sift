@@ -198,16 +198,26 @@ class IngestWorker:
 
     @staticmethod
     def build_payload(asset: str, points: list[IngestPoint]) -> dict[str, Any]:
-        """Group points by timestamp into a schemaless ingest body."""
-        grouped: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
+        """Group points by timestamp into a schemaless ingest body.
+
+        Within each timestamp, keep last-write-wins per channel. Sift rejects
+        batches with ``duplicate channel value`` when the same channel appears
+        twice in one ``values`` array (e.g. heartbeat force-enqueue + state_changed).
+        """
+        grouped: OrderedDict[str, OrderedDict[str, Any]] = OrderedDict()
         for point in points:
-            grouped.setdefault(point.timestamp, []).append(
-                {"channel": point.channel, "value": point.value}
-            )
+            channels = grouped.setdefault(point.timestamp, OrderedDict())
+            channels[point.channel] = point.value  # last wins
         return {
             "asset_name": asset,
             "data": [
-                {"timestamp": ts, "values": values} for ts, values in grouped.items()
+                {
+                    "timestamp": ts,
+                    "values": [
+                        {"channel": ch, "value": val} for ch, val in channels.items()
+                    ],
+                }
+                for ts, channels in grouped.items()
             ],
         }
 

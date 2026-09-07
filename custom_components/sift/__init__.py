@@ -167,10 +167,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         ):
             return
 
-        # Heartbeat always passes the filter (canary must reach Sift).
-        if new_state.entity_id != HEARTBEAT_ENTITY_ID and not entity_filter(
-            new_state.entity_id
-        ):
+        # Heartbeat is force-enqueued by the interval tick; skip here so the
+        # same channel is not POSTed twice in one batch (Sift 400).
+        if new_state.entity_id == HEARTBEAT_ENTITY_ID:
+            return
+
+        if not entity_filter(new_state.entity_id):
             return
 
         try:
@@ -214,7 +216,8 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             heartbeat.toggle()
             if heartbeat.hass is not None:
                 heartbeat.async_write_ha_state()
-            # Force ingest even if state_changed is slow/missed.
+            # Force ingest (handle_event skips HEARTBEAT_ENTITY_ID to avoid
+            # duplicate channel in the same batch when write_ha_state fires).
             timestamp = (
                 dt_util.utcnow()
                 .isoformat(timespec="milliseconds")
