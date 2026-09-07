@@ -52,15 +52,56 @@ sift:
   backoff_max: 30           # seconds
 ```
 
-## Behavior (v0.2)
+## Behavior (v0.2+)
 
 - Listens to `state_changed`, channels named as full `entity_id` (unchanged).
+- Optional `forward_attributes` adds `{entity_id}.{attr}` channels (v0.5+; opt-in).
 - Skips `unknown` / `unavailable` / empty / removed entities.
 - Uses **one** shared `aiohttp` session, a **bounded queue**, and a **single worker** that batches points into schemaless POSTs.
 - Retries transient HTTP/network failures with exponential backoff. **Does not** retry 401/403 (sets `auth_failed` in stats).
 - When the queue is full, **oldest** points are dropped (`dropped_points` counter).
 - Runtime stats live at `hass.data["sift"]["stats"]` and are exposed as diagnostic entities (v0.4+): `last_success`, `consecutive_failures`, `dropped_points`, `queue_depth`, `auth_failed`, `last_error`.
 - No recorder backfill — points missed while Sift/API was unreachable are not replayed.
+
+
+### Optional attribute forwarding (v0.5+)
+
+Opt-in only (default empty = unchanged). On each qualifying `state_changed`, selected entity **attributes** are also enqueued as separate schemaless channels, using the same ingest worker / queue / batch / backoff as state.
+
+**Channel naming**
+
+* Entity state: full `entity_id` (unchanged), e.g. `climate.thermostat`
+* Attributes: `{entity_id}.{attr}`, e.g. `climate.thermostat.hvac_action`
+
+**Allowlist** — list rules by exact `entity_id` **or** by `domain`, each with an `attributes` list:
+
+```yaml
+sift:
+  api_uri: https://<uri>/api/v2/ingest
+  api_key: !secret sift_api_key
+  asset: limburghome_ha
+  filter:
+    include_domains:
+      - climate
+      - sensor
+  forward_attributes:
+    - entity_id: climate.thermostat
+      attributes:
+        - hvac_action
+        - temperature
+        - target_temp_high
+        - target_temp_low
+    # Or domain-wide (unioned with entity rules):
+    # - domain: climate
+    #   attributes:
+    #     - hvac_action
+```
+
+Notes:
+
+* Values are coerced like state (number / bool / string). `None`, `unknown`, `unavailable`, and empty strings are skipped.
+* Attribute forwarding still requires the entity to pass `filter` and to have a usable state (same early exits as state ingest). Heartbeat is not double-enqueued.
+* Prefer specific `entity_id` rules over broad `domain` lists to limit channel count.
 
 ## Technical Notes
 

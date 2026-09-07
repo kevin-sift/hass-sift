@@ -3,7 +3,8 @@
 Ingests Home Assistant state changes into Sift (https://www.siftstack.com)
 via schemaless REST, using a shared ClientSession, bounded queue, and batched
 POSTs with retry/backoff. Optionally forwards selected log lines as a string
-channel, exposes health diagnostics, and can emit a heartbeat canary.
+channel, exposes health diagnostics, can emit a heartbeat canary, and can
+optionally forward selected entity attributes as extra channels.
 """
 
 from __future__ import annotations
@@ -25,6 +26,7 @@ from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
+from .attributes import AttributeAllowlist
 from .binary_sensor import SiftHeartbeatBinarySensor
 from .const import (
     CONF_API_KEY,
@@ -34,6 +36,7 @@ from .const import (
     CONF_BACKOFF_MAX,
     CONF_FILTER,
     CONF_FLUSH_INTERVAL,
+    CONF_FORWARD_ATTRIBUTES,
     CONF_FORWARD_LOGS,
     CONF_HEALTH_STALE_AFTER,
     CONF_HEARTBEAT,
@@ -83,6 +86,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the Sift component."""
     conf = config[DOMAIN]
     entity_filter = conf.get(CONF_FILTER, {})
+    attr_allowlist = AttributeAllowlist.from_config(
+        conf.get(CONF_FORWARD_ATTRIBUTES)
+    )
 
     api_uri = conf[CONF_API_URI]
     api_key = conf[CONF_API_KEY]
@@ -124,6 +130,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         CONF_API_KEY: api_key,
         CONF_ASSET: asset,
         CONF_FILTER: entity_filter,
+        CONF_FORWARD_ATTRIBUTES: attr_allowlist,
         CONF_HEALTH_STALE_AFTER: health_stale_after,
         DATA_SESSION: session,
         DATA_WORKER: worker,
@@ -175,22 +182,31 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         if not entity_filter(new_state.entity_id):
             return
 
+        timestamp = (
+            dt_util.utcnow().isoformat(timespec="milliseconds").replace("+00:00", "Z")
+        )
+
         try:
             value = STATE_VALUE_SCHEMA(new_state.state)
         except Exception:  # noqa: BLE001
             _LOGGER.debug("Skipping un-coercible state for %s", new_state.entity_id)
-            return
-
-        timestamp = (
-            dt_util.utcnow().isoformat(timespec="milliseconds").replace("+00:00", "Z")
-        )
-        worker.enqueue(
-            IngestPoint(
-                timestamp=timestamp,
-                channel=new_state.entity_id,
-                value=value,
+        else:
+            worker.enqueue(
+                IngestPoint(
+                    timestamp=timestamp,
+                    channel=new_state.entity_id,
+                    value=value,
+                )
             )
-        )
+
+        # Opt-in attribute channels: {entity_id}.{attr} (same queue/batch).
+        if attr_allowlist:
+            for point in attr_allowlist.points_for(
+                entity_id=new_state.entity_id,
+                attributes=new_state.attributes,
+                timestamp=timestamp,
+            ):
+                worker.enqueue(point)
 
     unsub = hass.bus.async_listen(EVENT_STATE_CHANGED, handle_event)
     hass.data[DOMAIN][DATA_UNSUB] = unsub
@@ -252,6 +268,12 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             await session.close()
 
     hass.bus.async_listen_once(EVENT_HOMEASSISTANT_STOP, _on_stop)
+
+    if attr_allowlist:
+        _LOGGER.info(
+            "Sift attribute forwarding enabled (%s rule group(s))",
+            len(conf.get(CONF_FORWARD_ATTRIBUTES) or []),
+        )
 
     _LOGGER.info(
         "Sift ingest ready for asset %s (flush=%.2fs, batch=%s, queue=%s, stale=%ss)",
