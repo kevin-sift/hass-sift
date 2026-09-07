@@ -10,13 +10,16 @@ from .const import (
     CONF_ASSET,
     CONF_BACKOFF_BASE,
     CONF_BACKOFF_MAX,
+    CONF_CLIENT_KEY,
     CONF_FILTER,
     CONF_FLUSH_INTERVAL,
     CONF_FORWARD_LOGS,
+    CONF_GRPC_URI,
     CONF_HEALTH_STALE_AFTER,
     CONF_HEARTBEAT,
     CONF_HEARTBEAT_ENABLED,
     CONF_HEARTBEAT_INTERVAL,
+    CONF_INGESTION_CONFIG,
     CONF_LOGS_CHANNEL,
     CONF_LOGS_ENABLED,
     CONF_LOGS_LEVEL,
@@ -25,8 +28,15 @@ from .const import (
     CONF_MAX_BATCH_POINTS,
     CONF_MAX_RETRIES,
     CONF_QUEUE_MAXSIZE,
+    CONF_REST_URI,
+    CONF_TYPED_CHANNELS,
+    CONF_TYPED_DATA_TYPE,
+    CONF_TYPED_DESCRIPTION,
+    CONF_TYPED_ENTITY_ID,
+    CONF_TYPED_UNIT,
     DEFAULT_BACKOFF_BASE,
     DEFAULT_BACKOFF_MAX,
+    DEFAULT_CLIENT_KEY,
     DEFAULT_FLUSH_INTERVAL,
     DEFAULT_HEALTH_STALE_AFTER,
     DEFAULT_HEARTBEAT_ENABLED,
@@ -38,7 +48,31 @@ from .const import (
     DEFAULT_MAX_BATCH_POINTS,
     DEFAULT_MAX_RETRIES,
     DEFAULT_QUEUE_MAXSIZE,
+    DEFAULT_TYPED_CHANNELS,
     DOMAIN,
+    TYPED_DATA_TYPES,
+)
+
+TYPED_CHANNEL_ENTRY_SCHEMA = vol.Schema(
+    {
+        vol.Required(CONF_TYPED_ENTITY_ID): cv.string,
+        vol.Optional(CONF_TYPED_UNIT): cv.string,
+        vol.Optional(CONF_TYPED_DESCRIPTION): cv.string,
+        vol.Optional(CONF_TYPED_DATA_TYPE): vol.All(
+            cv.string, vol.Lower, vol.In(sorted(TYPED_DATA_TYPES))
+        ),
+    }
+)
+
+INGESTION_CONFIG_SCHEMA = vol.Schema(
+    {
+        vol.Optional(CONF_CLIENT_KEY, default=DEFAULT_CLIENT_KEY): cv.string,
+        vol.Optional(CONF_GRPC_URI): cv.string,
+        vol.Optional(CONF_REST_URI): cv.string,
+        vol.Optional(CONF_TYPED_CHANNELS, default=DEFAULT_TYPED_CHANNELS): vol.All(
+            cv.ensure_list, [TYPED_CHANNEL_ENTRY_SCHEMA]
+        ),
+    }
 )
 
 CONFIG_SCHEMA = vol.Schema(
@@ -101,6 +135,7 @@ CONFIG_SCHEMA = vol.Schema(
                         ): vol.All(vol.Coerce(int), vol.Range(min=50, max=4000)),
                     }
                 ),
+                vol.Optional(CONF_INGESTION_CONFIG): INGESTION_CONFIG_SCHEMA,
             }
         )
     },
