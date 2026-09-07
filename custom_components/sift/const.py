@@ -56,3 +56,26 @@ DATA_HEARTBEAT_ENTITY: Final = "heartbeat_entity"
 DATA_UNSUB_HEARTBEAT: Final = "unsub_heartbeat"
 
 HEARTBEAT_ENTITY_ID: Final = "binary_sensor.sift_heartbeat"
+
+# Hybrid B: opt-in typed channels via IngestionConfig streaming (gRPC / sift_client)
+CONF_INGESTION_CONFIG: Final = "ingestion_config"
+CONF_CLIENT_KEY: Final = "client_key"
+CONF_GRPC_URI: Final = "grpc_uri"
+CONF_REST_URI: Final = "rest_uri"
+CONF_TYPED_CHANNELS: Final = "typed_channels"
+CONF_TYPED_ENTITY_ID: Final = "entity_id"
+CONF_TYPED_UNIT: Final = "unit"
+CONF_TYPED_DESCRIPTION: Final = "description"
+CONF_TYPED_DATA_TYPE: Final = "data_type"
+
+# Stable client_key for limburghome_ha typed path. Bump only on incompatible
+# schema break (rename/type/unit/reorder of existing flows) — see docs/.
+DEFAULT_CLIENT_KEY: Final = "limburghome-ha-v1"
+DEFAULT_TYPED_CHANNELS: Final = []
+
+DATA_TYPED_WORKER: Final = "typed_worker"
+
+# Allowed ChannelConfig data_type names (sift_stream ChannelDataTypePy subset).
+TYPED_DATA_TYPES: Final = frozenset(
+    {"double", "float", "bool", "string", "int32", "int64", "enum"}
+)

@@ -129,3 +129,30 @@ Canary channel / entity: `binary_sensor.sift_heartbeat` (values `on`/`off`).
 4. Kill API key / block network → within ≤1–2 flush+backoff cycles, `binary_sensor.sift_ingest_ok` goes `off`; HA otherwise healthy.
 5. Restore → sensor returns `on`; canary resumes without HA restart.
 6. Existing channels keep the same `entity_id` names/types.
+
+### Optional typed channels / Hybrid B (v0.6+)
+
+Opt-in **IngestionConfig** streaming for an allowlisted set of entities (units + descriptions). The long tail stays on schemaless REST. Empty / omitted allowlist = **unchanged default**.
+
+See [docs/hybrid-b-typed-channels.md](docs/hybrid-b-typed-channels.md) and the spike [docs/hass-sift-schemaless-vs-config-stream-2026-09-06.md](docs/hass-sift-schemaless-vs-config-stream-2026-09-06.md).
+
+```yaml
+sift:
+  api_uri: https://<uri>/api/v2/ingest
+  api_key: !secret sift_api_key
+  asset: limburghome_ha          # dry-run: use a throwaway asset first
+  ingestion_config:
+    client_key: limburghome-ha-v1   # stable; do not bump casually
+    # grpc_uri / rest_uri optional — derived from api_uri host when omitted
+    typed_channels:
+      - entity_id: sensor.office_temperature
+        unit: °F
+        description: Office temperature
+        data_type: double
+```
+
+Notes:
+
+* Channel names remain full `entity_id`. One flow per entity (`ha_typed.{entity_id}`).
+* Requires `pip install 'sift-stack-py[sift-stream]'` in the HA env when typed_channels is non-empty (not a default manifest requirement).
+* **Type-upgrade risk:** promoting an existing schemaless string channel to typed `DOUBLE`/`ENUM` on the same asset may be rejected or fork series — prefer a throwaway asset for dry-run; see docs.

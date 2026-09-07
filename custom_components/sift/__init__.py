@@ -3,13 +3,16 @@
 Ingests Home Assistant state changes into Sift (https://www.siftstack.com)
 via schemaless REST, using a shared ClientSession, bounded queue, and batched
 POSTs with retry/backoff. Optionally forwards selected log lines as a string
-channel, exposes health diagnostics, and can emit a heartbeat canary.
+channel, exposes health diagnostics, can emit a heartbeat canary, and can
+route an allowlisted set of entities through IngestionConfig streaming (units
++ descriptions) while the long tail stays schemaless (Hybrid B).
 """
 
 from __future__ import annotations
 
 import logging
 from datetime import timedelta
+from urllib.parse import urlparse
 
 import aiohttp
 from homeassistant.const import (
@@ -32,13 +35,16 @@ from .const import (
     CONF_ASSET,
     CONF_BACKOFF_BASE,
     CONF_BACKOFF_MAX,
+    CONF_CLIENT_KEY,
     CONF_FILTER,
     CONF_FLUSH_INTERVAL,
     CONF_FORWARD_LOGS,
+    CONF_GRPC_URI,
     CONF_HEALTH_STALE_AFTER,
     CONF_HEARTBEAT,
     CONF_HEARTBEAT_ENABLED,
     CONF_HEARTBEAT_INTERVAL,
+    CONF_INGESTION_CONFIG,
     CONF_LOGS_CHANNEL,
     CONF_LOGS_ENABLED,
     CONF_LOGS_LEVEL,
@@ -47,15 +53,19 @@ from .const import (
     CONF_MAX_BATCH_POINTS,
     CONF_MAX_RETRIES,
     CONF_QUEUE_MAXSIZE,
+    CONF_REST_URI,
+    CONF_TYPED_CHANNELS,
     DATA_HEARTBEAT_ENTITY,
     DATA_LOG_HANDLER,
     DATA_SESSION,
     DATA_STATS,
+    DATA_TYPED_WORKER,
     DATA_UNSUB,
     DATA_UNSUB_HEARTBEAT,
     DATA_WORKER,
     DEFAULT_BACKOFF_BASE,
     DEFAULT_BACKOFF_MAX,
+    DEFAULT_CLIENT_KEY,
     DEFAULT_FLUSH_INTERVAL,
     DEFAULT_HEALTH_STALE_AFTER,
     DEFAULT_HEARTBEAT_ENABLED,
@@ -73,6 +83,13 @@ from .const import (
 from .ingest import IngestPoint, IngestWorker, empty_stats
 from .logging_forward import attach_log_handler, detach_log_handler
 from .schemas import CONFIG_SCHEMA, STATE_VALUE_SCHEMA
+from .typed_channels import TypedChannelAllowlist
+from .typed_ingest import (
+    SiftClientTypedBackend,
+    TypedIngestWorker,
+    TypedPoint,
+    derive_uris,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -114,6 +131,58 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         backoff_max=backoff_max,
     )
 
+    # Hybrid B: opt-in typed allowlist (empty → schemaless only, unchanged).
+    typed_worker: TypedIngestWorker | None = None
+    ic_conf = conf.get(CONF_INGESTION_CONFIG) or {}
+    typed_allowlist = TypedChannelAllowlist.from_config(
+        ic_conf.get(CONF_TYPED_CHANNELS)
+    )
+    if typed_allowlist:
+        client_key = ic_conf.get(CONF_CLIENT_KEY, DEFAULT_CLIENT_KEY)
+        grpc_uri, rest_uri = derive_uris(
+            api_uri,
+            grpc_uri=ic_conf.get(CONF_GRPC_URI),
+            rest_uri=ic_conf.get(CONF_REST_URI),
+        )
+        if not grpc_uri:
+            _LOGGER.error(
+                "ingestion_config.typed_channels set but grpc_uri could not be "
+                "derived from api_uri=%s; set ingestion_config.grpc_uri explicitly. "
+                "Falling back to schemaless for allowlisted entities.",
+                api_uri,
+            )
+        else:
+            use_ssl = urlparse(rest_uri).scheme != "http"
+            try:
+                backend = SiftClientTypedBackend(
+                    api_key=api_key,
+                    asset=asset,
+                    client_key=client_key,
+                    grpc_uri=grpc_uri,
+                    rest_uri=rest_uri,
+                    use_ssl=use_ssl,
+                )
+                typed_worker = TypedIngestWorker(
+                    backend=backend,
+                    allowlist=typed_allowlist,
+                    stats=stats,
+                    queue_maxsize=min(queue_maxsize, 500),
+                )
+                await typed_worker.start()
+                _LOGGER.info(
+                    "Sift Hybrid B typed channels enabled (%s entit(y/ies)) "
+                    "client_key=%s grpc=%s",
+                    len(typed_allowlist),
+                    client_key,
+                    grpc_uri,
+                )
+            except Exception:  # noqa: BLE001
+                _LOGGER.exception(
+                    "Failed to start typed IngestionConfig path; allowlisted "
+                    "entities will fall back to schemaless REST"
+                )
+                typed_worker = None
+
     heartbeat: SiftHeartbeatBinarySensor | None = None
     hb_conf = conf.get(CONF_HEARTBEAT) or {}
     if hb_conf.get(CONF_HEARTBEAT_ENABLED, DEFAULT_HEARTBEAT_ENABLED):
@@ -127,6 +196,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         CONF_HEALTH_STALE_AFTER: health_stale_after,
         DATA_SESSION: session,
         DATA_WORKER: worker,
+        DATA_TYPED_WORKER: typed_worker,
         DATA_STATS: stats,
         DATA_LOG_HANDLER: None,
         DATA_HEARTBEAT_ENTITY: heartbeat,
@@ -184,6 +254,22 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         timestamp = (
             dt_util.utcnow().isoformat(timespec="milliseconds").replace("+00:00", "Z")
         )
+
+        # Hybrid B: allowlisted → typed path; everyone else → schemaless.
+        tw = hass.data[DOMAIN].get(DATA_TYPED_WORKER)
+        if tw is not None and tw.contains(new_state.entity_id):
+            spec = tw.allowlist.get(new_state.entity_id)
+            if spec is not None:
+                tw.enqueue(
+                    TypedPoint(
+                        timestamp=timestamp,
+                        spec=spec,
+                        value=value,
+                        attributes=dict(new_state.attributes or {}),
+                    )
+                )
+                return
+
         worker.enqueue(
             IngestPoint(
                 timestamp=timestamp,
@@ -247,6 +333,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         unsub_fn = hass.data.get(DOMAIN, {}).get(DATA_UNSUB)
         if unsub_fn:
             unsub_fn()
+        tw = hass.data.get(DOMAIN, {}).get(DATA_TYPED_WORKER)
+        if tw is not None:
+            await tw.stop()
         await worker.stop()
         if not session.closed:
             await session.close()
