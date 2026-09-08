@@ -1,0 +1,49 @@
+default_config:
+
+logger:
+  default: info
+  logs:
+    custom_components.sift: debug
+
+input_boolean:
+  sift_canary:
+    name: Sift canary
+    initial: false
+
+sift:
+  api_uri: http://host.docker.internal:8765/api/v2/ingest
+  api_key: local-test-key
+  asset: hass_sift_local_test
+  filter:
+    include_entities:
+      - input_boolean.sift_canary
+  flush_interval: 0.2
+  max_batch_points: 50
+  # Typed / Hybrid-B ingest ("runs:") requires the integration-branch component
+  # and a real Sift deployment (gRPC + API key). The default local dry-run below
+  # uses schemaless ingest against the mock, so it is commented out here.
+  # runs:
+  #   mode: rolling
+  #   period: 24h
+  health_stale_after: 120
+  heartbeat:
+    enabled: true
+    interval: 30
+  forward_logs:
+    enabled: true
+    level: WARNING
+    channel: homeassistant.log
+    max_message_length: 400
+
+# Hands-off live ingest dry-run: toggle the canary so a filtered state_changed
+# flows to Sift without needing HA onboarding / manual UI interaction. Remove or
+# disable for interactive use.
+automation:
+  - alias: Sift canary auto-toggle
+    trigger:
+      - platform: time_pattern
+        seconds: "/15"
+    action:
+      - service: input_boolean.toggle
+        target:
+          entity_id: input_boolean.sift_canary

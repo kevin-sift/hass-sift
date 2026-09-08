@@ -1,0 +1,17 @@
+# Local Home Assistant + use host mock Sift ingest (:8765).
+# Usage from repo root:
+#   python3 dev/mock_sift/server.py &
+#   sudo docker compose -f dev/docker-compose.yml up -d
+services:
+  homeassistant:
+    image: ghcr.io/home-assistant/home-assistant:stable
+    container_name: hass-sift-test
+    restart: unless-stopped
+    ports:
+      - "8123:8123"
+    volumes:
+      - ./ha-config:/config
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    environment:
+      - TZ=America/Los_Angeles
