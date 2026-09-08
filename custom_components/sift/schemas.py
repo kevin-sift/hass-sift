@@ -13,6 +13,7 @@ from .const import (
     CONF_ATTR_ENTITY_ID,
     CONF_BACKOFF_BASE,
     CONF_BACKOFF_MAX,
+    CONF_CHANNEL_MAP,
     CONF_FILTER,
     CONF_FLUSH_INTERVAL,
     CONF_FORWARD_ATTRIBUTES,
@@ -31,6 +32,7 @@ from .const import (
     CONF_QUEUE_MAXSIZE,
     DEFAULT_BACKOFF_BASE,
     DEFAULT_BACKOFF_MAX,
+    DEFAULT_CHANNEL_MAP,
     DEFAULT_FLUSH_INTERVAL,
     DEFAULT_FORWARD_ATTRIBUTES,
     DEFAULT_HEALTH_STALE_AFTER,
@@ -47,6 +49,13 @@ from .const import (
 )
 
 _ATTR_LIST = vol.All(cv.ensure_list, [cv.string], vol.Length(min=1))
+
+# entity_id → dotted channel; reject empty keys/values
+CHANNEL_MAP_SCHEMA = vol.Schema(
+    {
+        vol.All(cv.string, vol.Length(min=1)): vol.All(cv.string, vol.Length(min=1))
+    }
+)
 
 FORWARD_ATTRIBUTES_ENTRY_SCHEMA = vol.Any(
     vol.Schema(
@@ -71,6 +80,9 @@ CONFIG_SCHEMA = vol.Schema(
                 vol.Required(CONF_API_KEY): cv.string,
                 vol.Required(CONF_ASSET): cv.string,
                 vol.Optional(CONF_FILTER, default={}): FILTER_SCHEMA,
+                vol.Optional(
+                    CONF_CHANNEL_MAP, default=DEFAULT_CHANNEL_MAP
+                ): CHANNEL_MAP_SCHEMA,
                 vol.Optional(
                     CONF_FLUSH_INTERVAL, default=DEFAULT_FLUSH_INTERVAL
                 ): vol.All(vol.Coerce(float), vol.Range(min=0.05, max=60)),

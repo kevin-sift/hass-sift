@@ -4,7 +4,8 @@ Ingests Home Assistant state changes into Sift (https://www.siftstack.com)
 via schemaless REST, using a shared ClientSession, bounded queue, and batched
 POSTs with retry/backoff. Optionally forwards selected log lines as a string
 channel, exposes health diagnostics, can emit a heartbeat canary, and can
-optionally forward selected entity attributes as extra channels.
+optionally forward selected entity attributes as extra channels,
+and optionally rename entity channels via ``channel_map``.
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from homeassistant.helpers.typing import ConfigType
 from homeassistant.util import dt as dt_util
 
 from .attributes import AttributeAllowlist
+from .channels import resolve_sift_channel
 from .binary_sensor import SiftHeartbeatBinarySensor
 from .const import (
     CONF_API_KEY,
@@ -34,6 +36,7 @@ from .const import (
     CONF_ASSET,
     CONF_BACKOFF_BASE,
     CONF_BACKOFF_MAX,
+    CONF_CHANNEL_MAP,
     CONF_FILTER,
     CONF_FLUSH_INTERVAL,
     CONF_FORWARD_ATTRIBUTES,
@@ -89,6 +92,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     attr_allowlist = AttributeAllowlist.from_config(
         conf.get(CONF_FORWARD_ATTRIBUTES)
     )
+    channel_map = conf.get(CONF_CHANNEL_MAP) or {}
 
     api_uri = conf[CONF_API_URI]
     api_key = conf[CONF_API_KEY]
@@ -131,6 +135,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         CONF_ASSET: asset,
         CONF_FILTER: entity_filter,
         CONF_FORWARD_ATTRIBUTES: attr_allowlist,
+        CONF_CHANNEL_MAP: channel_map,
         CONF_HEALTH_STALE_AFTER: health_stale_after,
         DATA_SESSION: session,
         DATA_WORKER: worker,
@@ -194,7 +199,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             worker.enqueue(
                 IngestPoint(
                     timestamp=timestamp,
-                    channel=new_state.entity_id,
+                    channel=resolve_sift_channel(
+                        new_state.entity_id, channel_map=channel_map
+                    ),
                     value=value,
                 )
             )
@@ -205,6 +212,7 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
                 entity_id=new_state.entity_id,
                 attributes=new_state.attributes,
                 timestamp=timestamp,
+                channel_map=channel_map,
             ):
                 worker.enqueue(point)
 
@@ -274,6 +282,9 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
             "Sift attribute forwarding enabled (%s rule group(s))",
             len(conf.get(CONF_FORWARD_ATTRIBUTES) or []),
         )
+
+    if channel_map:
+        _LOGGER.info("Sift channel_map enabled (%s mapping(s))", len(channel_map))
 
     _LOGGER.info(
         "Sift ingest ready for asset %s (flush=%.2fs, batch=%s, queue=%s, stale=%ss)",
