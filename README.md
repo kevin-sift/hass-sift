@@ -54,8 +54,9 @@ sift:
 
 ## Behavior (v0.2+)
 
-- Listens to `state_changed`, channels named as full `entity_id` (unchanged).
-- Optional `forward_attributes` adds `{entity_id}.{attr}` channels (v0.5+; opt-in).
+- Listens to `state_changed`, channels named as full `entity_id` by default.
+- Optional `channel_map` renames selected entity channels (v0.5.1+; opt-in; single-name, no dual-publish).
+- Optional `forward_attributes` adds `{base}.{attr}` channels (v0.5+; opt-in; `base` respects `channel_map`).
 - Skips `unknown` / `unavailable` / empty / removed entities.
 - Uses **one** shared `aiohttp` session, a **bounded queue**, and a **single worker** that batches points into schemaless POSTs.
 - Retries transient HTTP/network failures with exponential backoff. **Does not** retry 401/403 (sets `auth_failed` in stats).
@@ -70,8 +71,8 @@ Opt-in only (default empty = unchanged). On each qualifying `state_changed`, sel
 
 **Channel naming**
 
-* Entity state: full `entity_id` (unchanged), e.g. `climate.thermostat`
-* Attributes: `{entity_id}.{attr}`, e.g. `climate.thermostat.hvac_action`
+* Entity state: full `entity_id` by default, e.g. `climate.thermostat` (or `channel_map` rename)
+* Attributes: `{base}.{attr}`, e.g. `climate.thermostat.hvac_action` (or mapped base)
 
 **Allowlist** — list rules by exact `entity_id` **or** by `domain`, each with an `attributes` list:
 
@@ -102,6 +103,36 @@ Notes:
 * Values are coerced like state (number / bool / string). `None`, `unknown`, `unavailable`, and empty strings are skipped.
 * Attribute forwarding still requires the entity to pass `filter` and to have a usable state (same early exits as state ingest). Heartbeat is not double-enqueued.
 * Prefer specific `entity_id` rules over broad `domain` lists to limit channel count.
+
+
+### Optional channel map (v0.5.1+)
+
+Rename selected Home Assistant `entity_id`s to dotted Sift channel names on asset ingest (e.g. Limburg Home → `limburghome_ha`). Opt-in only; empty / omitted map = today's behavior (channel = `entity_id`).
+
+**Semantics (single-name resolve — no dual-publish)**
+
+* State: `channel = channel_map.get(entity_id, entity_id)`
+* Attributes: `base = channel_map.get(entity_id, entity_id)` then `{base}.{attr}`
+* Unmapped entities (e.g. `weather.ksna`) keep their existing names without an entry
+
+```yaml
+sift:
+  api_uri: https://<uri>/api/v2/ingest
+  api_key: !secret sift_api_key
+  asset: limburghome_ha
+  channel_map:
+    sensor.garagefridge_temperature: home.garage.fridge.temperature
+    climate.thermostat: home.living.thermostat
+  # forward_attributes still work; mapped bases apply:
+  # climate.thermostat.hvac_action → home.living.thermostat.hvac_action
+```
+
+**House deploy notes**
+
+* Adding a mapping changes the Sift channel name going forward; historical data under the old `entity_id` name is not rewritten.
+* Prefer mapping only entities you care about in LHI / Limburg Home views; leave the rest unmapped.
+* Empty mapped names are rejected by config validation.
+* Heartbeat / log channels are unchanged by `channel_map` (they are not entity state ingest).
 
 ## Technical Notes
 

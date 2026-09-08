@@ -12,6 +12,7 @@ from .const import (
     CONF_ATTR_DOMAIN,
     CONF_ATTR_ENTITY_ID,
 )
+from .channels import resolve_sift_channel
 from .ingest import IngestPoint
 from .schemas import STATE_VALUE_SCHEMA
 
@@ -80,10 +81,13 @@ class AttributeAllowlist:
         entity_id: str,
         attributes: Mapping[str, Any],
         timestamp: str,
+        channel_map: Mapping[str, str] | None = None,
     ) -> list[IngestPoint]:
         """Build ingest points for allowlisted attributes present on the state.
 
-        Channel naming: ``{entity_id}.{attr}`` (e.g. ``climate.thermostat.hvac_action``).
+        Channel naming: ``{base}.{attr}`` where ``base`` is the optional
+        ``channel_map`` rename of ``entity_id`` (else ``entity_id`` itself).
+        Example unmapped: ``climate.thermostat.hvac_action``.
         """
         wanted = self.attrs_for(entity_id)
         if not wanted:
@@ -103,7 +107,9 @@ class AttributeAllowlist:
             points.append(
                 IngestPoint(
                     timestamp=timestamp,
-                    channel=f"{entity_id}.{attr}",
+                    channel=resolve_sift_channel(
+                        entity_id, attr=attr, channel_map=channel_map
+                    ),
                     value=value,
                 )
             )

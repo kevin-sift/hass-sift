@@ -63,3 +63,8 @@ CONF_ATTR_ENTITY_ID: Final = "entity_id"
 CONF_ATTR_DOMAIN: Final = "domain"
 CONF_ATTR_ATTRIBUTES: Final = "attributes"
 DEFAULT_FORWARD_ATTRIBUTES: Final = []
+
+# Optional entity_id → dotted Sift channel rename (schemaless; single-name)
+CONF_CHANNEL_MAP: Final = "channel_map"
+DEFAULT_CHANNEL_MAP: Final = {}
+
